@@ -7,6 +7,7 @@
 #include "common/vlog.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Sequence.h"
+#include "llvm/Support/Casting.h"
 #include "toolchain/lower/function_context.h"
 #include "toolchain/sem_ir/entry_point.h"
 #include "toolchain/sem_ir/file.h"
@@ -44,6 +45,27 @@ auto FileContext::Run() -> std::unique_ptr<llvm::Module> {
   }
 
   // TODO: Lower global variable declarations.
+  for (auto inst_id :
+       sem_ir_->inst_blocks().Get(sem_ir_->top_inst_block_id())) {
+    auto inst = sem_ir_->insts().Get(inst_id);
+    // NOLINTNEXTLINE(bugprone-switch-missing-default-case)
+    switch (inst.kind()) {
+      case SemIR::VarStorage::Kind:
+        HandleVarStorage(*this, inst_id, inst.As<SemIR::VarStorage>());
+        break;
+      case SemIR::BindName::Kind:
+        HandleBindName(*this, inst_id, inst.As<SemIR::BindName>());
+        break;
+      case SemIR::IntLiteral::Kind:
+        HandleIntLiteral(*this, inst_id, inst.As<SemIR::IntLiteral>());
+        break;
+      case SemIR::Assign::Kind:
+        HandleAssign(*this, inst_id, inst.As<SemIR::Assign>());
+        break;
+      default:
+        break;
+    }
+  }
 
   // Lower function definitions.
   for (auto i : llvm::seq(sem_ir_->functions().size())) {
@@ -68,6 +90,11 @@ auto FileContext::GetGlobal(SemIR::InstId inst_id) -> llvm::Value* {
 
   if (target.type_id() == SemIR::TypeId::TypeType) {
     return GetTypeAsValue();
+  }
+
+  auto it = globals_.find(inst_id);
+  if (it != globals_.end()) {
+    return it->second;
   }
 
   CARBON_FATAL() << "Missing value: " << inst_id << " " << target;

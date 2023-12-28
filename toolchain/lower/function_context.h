@@ -134,6 +134,14 @@ class FunctionContext {
                     SemIR::Name inst) -> void;
 #include "toolchain/sem_ir/inst_kind.def"
 
+auto HandleVarStorage(FileContext&, SemIR::InstId, SemIR::VarStorage) -> void;
+
+auto HandleBindName(FileContext&, SemIR::InstId, SemIR::BindName) -> void;
+
+auto HandleIntLiteral(FileContext&, SemIR::InstId, SemIR::IntLiteral) -> void;
+
+auto HandleAssign(FileContext&, SemIR::InstId, SemIR::Assign) -> void;
+
 }  // namespace Carbon::Lower
 
 #endif  // CARBON_TOOLCHAIN_LOWER_FUNCTION_CONTEXT_H_

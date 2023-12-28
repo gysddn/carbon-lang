@@ -311,4 +311,37 @@ auto HandleVarStorage(FunctionContext& context, SemIR::InstId inst_id,
   context.SetLocal(inst_id, alloca);
 }
 
+auto HandleVarStorage(FileContext& context, SemIR::InstId inst_id,
+                      SemIR::VarStorage inst) -> void {
+  auto name = context.sem_ir().names().GetIRBaseName(inst.name_id);
+  auto* type = context.GetType(inst.type_id);
+  auto* global = context.llvm_module().getOrInsertGlobal(name, type);
+  context.SetGlobal(inst_id, global);
+}
+
+auto HandleBindName(FileContext& context, SemIR::InstId inst_id,
+                    SemIR::BindName inst) -> void {
+  context.SetGlobal(inst_id, context.GetGlobal(inst.value_id));
+}
+
+auto HandleIntLiteral(FileContext& context, SemIR::InstId inst_id,
+                      SemIR::IntLiteral inst) -> void {
+  const llvm::APInt& i = context.sem_ir().ints().Get(inst.int_id);
+  // TODO: This won't offer correct semantics, but seems close enough for now.
+  llvm::Value* v = llvm::ConstantInt::get(
+      llvm::Type::getInt32Ty(context.llvm_context()), i.getZExtValue());
+  context.SetGlobal(inst_id, v);
+}
+
+// Assign in global context means initialization
+auto HandleAssign(FileContext& context, SemIR::InstId /*inst_id*/,
+                  SemIR::Assign inst) -> void {
+  auto* global = context.GetGlobal(inst.lhs_id);
+  CARBON_CHECK(llvm::isa<llvm::GlobalVariable>(global));
+  auto* const_init = context.GetGlobal(inst.rhs_id);
+  CARBON_CHECK(llvm::isa<llvm::Constant>(const_init));
+  llvm::cast<llvm::GlobalVariable>(global)->setInitializer(
+      llvm::cast<llvm::Constant>(const_init));
+}
+
 }  // namespace Carbon::Lower
