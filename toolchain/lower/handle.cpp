@@ -56,12 +56,27 @@ auto HandleArrayInit(FunctionContext& context, SemIR::InstId inst_id,
 
 auto HandleAssign(FunctionContext& context, SemIR::InstId /*inst_id*/,
                   SemIR::Assign inst) -> void {
+  // Inst is in global context
+  // Assign acts as an initializer
+  if (context.GetFuncName() == FunctionContext::GlobInitFunc) {
+    auto* global = context.GetValue(inst.lhs_id);
+    CARBON_CHECK(llvm::isa<llvm::GlobalVariable>(global));
+    context.builder().CreateStore(context.GetValue(inst.rhs_id),
+                                  context.GetValue(inst.lhs_id));
+    return;
+  }
   auto storage_type_id = context.sem_ir().insts().Get(inst.lhs_id).type_id();
   context.FinishInit(storage_type_id, inst.lhs_id, inst.rhs_id);
 }
 
 auto HandleBindName(FunctionContext& context, SemIR::InstId inst_id,
                     SemIR::BindName inst) -> void {
+  // Inst is in global context
+  if (context.GetFuncName() == FunctionContext::GlobInitFunc) {
+    context.SetGlobal(inst_id, context.GetValue(inst.value_id));
+    return;
+  }
+
   context.SetLocal(inst_id, context.GetValue(inst.value_id));
 }
 
@@ -181,8 +196,8 @@ auto HandleConverted(FunctionContext& context, SemIR::InstId inst_id,
 }
 
 auto HandleCrossRef(FunctionContext& /*context*/, SemIR::InstId /*inst_id*/,
-                    SemIR::CrossRef inst) -> void {
-  FatalErrorIfEncountered(inst);
+                    SemIR::CrossRef /*inst*/) -> void {
+  // Can be encountered, silently ignore
 }
 
 auto HandleDeref(FunctionContext& context, SemIR::InstId inst_id,
@@ -191,13 +206,13 @@ auto HandleDeref(FunctionContext& context, SemIR::InstId inst_id,
 }
 
 auto HandleFunctionDecl(FunctionContext& /*context*/, SemIR::InstId /*inst_id*/,
-                        SemIR::FunctionDecl inst) -> void {
-  FatalErrorIfEncountered(inst);
+                        SemIR::FunctionDecl /*inst*/) -> void {
+  // Can be encountered, silently ignore
 }
 
 auto HandleImport(FunctionContext& /*context*/, SemIR::InstId /*inst_id*/,
-                  SemIR::Import inst) -> void {
-  FatalErrorIfEncountered(inst);
+                  SemIR::Import /*inst*/) -> void {
+  // Can be encountered, silently ignore
 }
 
 auto HandleInitializeFrom(FunctionContext& context, SemIR::InstId /*inst_id*/,
@@ -222,9 +237,9 @@ auto HandleIntLiteral(FunctionContext& context, SemIR::InstId inst_id,
 }
 
 auto HandleLazyImportRef(FunctionContext& /*context*/,
-                         SemIR::InstId /*inst_id*/, SemIR::LazyImportRef inst)
-    -> void {
-  FatalErrorIfEncountered(inst);
+                         SemIR::InstId /*inst_id*/,
+                         SemIR::LazyImportRef /*inst*/) -> void {
+  // Can be encountered, silently ignore
 }
 
 auto HandleNameRef(FunctionContext& context, SemIR::InstId inst_id,
@@ -238,8 +253,8 @@ auto HandleNameRef(FunctionContext& context, SemIR::InstId inst_id,
 }
 
 auto HandleNamespace(FunctionContext& /*context*/, SemIR::InstId /*inst_id*/,
-                     SemIR::Namespace inst) -> void {
-  FatalErrorIfEncountered(inst);
+                     SemIR::Namespace /*inst*/) -> void {
+  // Can be encountered, silently ignore
 }
 
 auto HandleNoOp(FunctionContext& /*context*/, SemIR::InstId /*inst_id*/,
@@ -307,6 +322,19 @@ auto HandleUnaryOperatorNot(FunctionContext& context, SemIR::InstId inst_id,
 
 auto HandleVarStorage(FunctionContext& context, SemIR::InstId inst_id,
                       SemIR::VarStorage inst) -> void {
+  // Inst is in global context
+  if (context.GetFuncName() == FunctionContext::GlobInitFunc) {
+    auto name = context.sem_ir().names().GetAsStringIfIdentifier(inst.name_id);
+    CARBON_CHECK(name);
+    auto* global = new llvm::GlobalVariable(
+        context.GetType(inst.type_id),
+        /*isConstant=*/false,
+        llvm::GlobalVariable::LinkageTypes::InternalLinkage,
+        llvm::Constant::getNullValue(context.GetType(inst.type_id)), *name);
+    context.SetGlobal(inst_id, global);
+    context.llvm_module().insertGlobalVariable(global);
+    return;
+  }
   // TODO: Eventually this name will be optional, and we'll want to provide
   // something like `var` as a default. However, that's not possible right now
   // so cannot be tested.

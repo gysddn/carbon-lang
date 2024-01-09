@@ -24,6 +24,12 @@ class FileContext {
   // the main execution loop.
   auto Run() -> std::unique_ptr<llvm::Module>;
 
+  auto SetGlobal(SemIR::InstId inst_id, llvm::Value* value) {
+    bool added = globals_.insert({inst_id, value}).second;
+    CARBON_CHECK(added) << "Duplicate global insert: " << inst_id << " "
+                        << sem_ir().insts().Get(inst_id);
+  }
+
   // Gets a callable's function.
   auto GetFunction(SemIR::FunctionId function_id) -> llvm::Function* {
     CARBON_CHECK(functions_[function_id.index] != nullptr) << function_id;
@@ -65,6 +71,8 @@ class FileContext {
   // Builds the type for the given instruction, which should then be cached by
   // the caller.
   auto BuildType(SemIR::InstId inst_id) -> llvm::Type*;
+
+  auto LowerTopInstBlock() -> void;
 
   // Returns the empty LLVM struct type used to represent the type `type`.
   auto GetTypeType() -> llvm::StructType* {

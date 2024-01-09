@@ -37,20 +37,18 @@ auto FileContext::Run() -> std::unique_ptr<llvm::Module> {
     types_[type_id.index] = BuildType(sem_ir_->types().Get(type_id).inst_id);
   }
 
+  LowerTopInstBlock();
+
   // Lower function declarations.
   functions_.resize_for_overwrite(sem_ir_->functions().size());
   for (auto i : llvm::seq(sem_ir_->functions().size())) {
     functions_[i] = BuildFunctionDecl(SemIR::FunctionId(i));
   }
 
-  // TODO: Lower global variable declarations.
-
   // Lower function definitions.
   for (auto i : llvm::seq(sem_ir_->functions().size())) {
     BuildFunctionDefinition(SemIR::FunctionId(i));
   }
-
-  // TODO: Lower global variable initializers.
 
   return std::move(llvm_module_);
 }
@@ -68,6 +66,11 @@ auto FileContext::GetGlobal(SemIR::InstId inst_id) -> llvm::Value* {
 
   if (target.type_id() == SemIR::TypeId::TypeType) {
     return GetTypeAsValue();
+  }
+
+  auto it = globals_.find(inst_id);
+  if (it != globals_.end()) {
+    return it->second;
   }
 
   CARBON_FATAL() << "Missing value: " << inst_id << " " << target;
@@ -324,6 +327,61 @@ auto FileContext::BuildType(SemIR::InstId inst_id) -> llvm::Type* {
       CARBON_FATAL() << "Cannot use inst as type: " << inst_id << " " << inst;
     }
   }
+}
+
+auto FileContext::LowerTopInstBlock() -> void {
+  auto top_inst_block_id = sem_ir_->top_inst_block_id();
+  CARBON_VLOG() << "Lowering top inst block " << top_inst_block_id << "\n";
+
+  llvm::FunctionType* function_type = llvm::FunctionType::get(
+      llvm::Type::getVoidTy(llvm_context()), /*isVarArg=*/false);
+  llvm::PointerType* function_ptr_type =
+      llvm::PointerType::getUnqual(function_type);
+
+  auto* init_function =
+      llvm::Function::Create(function_type, llvm::Function::InternalLinkage,
+                             FunctionContext::GlobInitFunc, llvm_module());
+  init_function->setSection(".text.startup");
+
+  FunctionContext function_lowering(*this, init_function, vlog_stream_);
+
+  auto* llvm_block = function_lowering.GetBlock(top_inst_block_id);
+  llvm_block->moveBefore(init_function->end());
+  function_lowering.builder().SetInsertPoint(llvm_block);
+  function_lowering.LowerBlock(top_inst_block_id);
+
+  if (llvm_block->empty()) {
+    init_function->eraseFromParent();
+    return;
+  }
+
+  // Add llvm.global_ctors and point it to the initialization function
+  // if there are initialization instructions
+  auto* ctors_strt_type =
+      llvm::StructType::get(llvm::Type::getInt32Ty(llvm_context()),
+                            function_ptr_type, function_ptr_type);
+  auto* global_ctors_type = llvm::ArrayType::get(ctors_strt_type, 1);
+
+  llvm_module().insertGlobalVariable(new llvm::GlobalVariable(
+      global_ctors_type,
+      /*isConstant=*/false,
+      llvm::GlobalVariable::LinkageTypes::AppendingLinkage,
+      llvm::ConstantArray::get(
+          global_ctors_type,
+          llvm::ConstantStruct::get(
+              ctors_strt_type,
+              {
+                  llvm::ConstantInt::get(llvm::Type::getInt32Ty(llvm_context()),
+                                         65535),
+                  llvm::ConstantExpr::getCast(llvm::Instruction::BitCast,
+                                              init_function, function_ptr_type),
+                  llvm::ConstantPointerNull::get(function_ptr_type),
+              })),
+      "llvm.global_ctors"));
+
+  // Has to manually insert a terminator instruction since this is
+  // not a real function in the SemIR and handle.cpp won't do it
+  function_lowering.builder().CreateRetVoid();
 }
 
 }  // namespace Carbon::Lower

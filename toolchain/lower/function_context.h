@@ -59,6 +59,10 @@ class FunctionContext {
                         << sem_ir().insts().Get(inst_id);
   }
 
+  auto SetGlobal(SemIR::InstId inst_id, llvm::Value* value) {
+    file_context_->SetGlobal(inst_id, value);
+  }
+
   // Gets a callable's function.
   auto GetFunction(SemIR::FunctionId function_id) -> llvm::Function* {
     return file_context_->GetFunction(function_id);
@@ -73,6 +77,8 @@ class FunctionContext {
   auto GetTypeAsValue() -> llvm::Value* {
     return file_context_->GetTypeAsValue();
   }
+
+  auto GetFuncName() -> llvm::StringRef { return function_->getName(); }
 
   // Create a synthetic block that corresponds to no SemIR::InstBlockId. Such
   // a block should only ever have a single predecessor, and is used when we
@@ -98,6 +104,8 @@ class FunctionContext {
   auto llvm_module() -> llvm::Module& { return file_context_->llvm_module(); }
   auto builder() -> llvm::IRBuilder<>& { return builder_; }
   auto sem_ir() -> const SemIR::File& { return file_context_->sem_ir(); }
+
+  static constexpr llvm::StringLiteral GlobInitFunc = "__global_init";
 
  private:
   // Emits a value copy for type `type_id` from `source_id` to `dest_id`.
